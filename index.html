@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blok Savunma Oyunu</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+#canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+#canvas.locked { cursor: none; }
+#ui {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 10;
+}
+#hud {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 24px; align-items: center;
+}
+.hud-box {
+  background: rgba(0,0,0,0.7); border: 2px solid #555; border-radius: 4px;
+  padding: 8px 16px; color: #fff; font-size: 16px; font-weight: bold;
+  text-shadow: 1px 1px 2px #000;
+}
+.hud-box span { color: #ffd700; }
+#timer-box { border-color: #ff6600; }
+#timer-box span { color: #ff6600; }
+#health-box { position: absolute; bottom: 80px; left: 16px; }
+#health-bar-bg {
+  width: 200px; height: 20px; background: #333; border: 2px solid #555; border-radius: 3px;
+}
+#health-bar { height: 100%; background: #22cc22; border-radius: 2px; transition: width 0.3s; }
+#crosshair {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: #fff; font-size: 24px; text-shadow: 1px 1px 2px #000; pointer-events: none;
+}
+#hotbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px;
+}
+.hotbar-slot {
+  width: 52px; height: 52px; background: rgba(0,0,0,0.7);
+  border: 2px solid #888; border-radius: 4px; display: flex; align-items: center;
+  justify-content: center; color: #fff; font-size: 12px; text-align: center;
+}
+.hotbar-slot.active { border-color: #fff; border-width: 3px; }
+#block-count-display {
+  position: absolute; bottom: 80px; right: 16px;
+  background: rgba(0,0,0,0.7); border: 2px solid #555; border-radius: 4px;
+  padding: 8px 16px; color: #fff; font-size: 16px; font-weight: bold;
+  text-shadow: 1px 1px 2px #000;
+}
+#message-overlay {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(0,0,0,0.85); border: 3px solid #ffd700; border-radius: 8px;
+  padding: 32px 48px; text-align: center; color: #fff;
+  display: none; pointer-events: all;
+}
+#message-overlay h2 { font-size: 32px; color: #ffd700; margin-bottom: 16px; }
+#message-overlay p { font-size: 18px; margin-bottom: 24px; }
+#message-overlay button {
+  background: #ffd700; color: #000; border: none; border-radius: 4px;
+  padding: 12px 32px; font-size: 18px; font-weight: bold; cursor: pointer;
+}
+#message-overlay button:hover { background: #ffaa00; }
+#round-display {
+  position: absolute; top: 16px; right: 16px;
+  background: rgba(0,0,0,0.7); border: 2px solid #9b59b6; border-radius: 4px;
+  padding: 8px 16px; color: #fff; font-size: 16px; font-weight: bold;
+}
+#enemy-count {
+  position: absolute; top: 16px; left: 16px;
+  background: rgba(0,0,0,0.7); border: 2px solid #e74c3c; border-radius: 4px;
+  padding: 8px 16px; color: #fff; font-size: 16px; font-weight: bold;
+}
+#phase-display {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.8); border: 2px solid #3498db; border-radius: 4px;
+  padding: 6px 20px; color: #3498db; font-size: 14px; font-weight: bold;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="ui">
+  <div id="hud">
+    <div class="hud-box" id="timer-box">⏱ <span id="timer">15</span>s</div>
+    <div class="hud-box">Blok: <span id="block-count">30</span></div>
+  </div>
+  <div id="round-display">Tur: <span id="round-num">1</span></div>
+  <div id="enemy-count">Düşman: <span id="enemy-num">0</span></div>
+  <div id="phase-display" id="phase-text">⚒ İnşaat Aşaması</div>
+  <div id="crosshair">+</div>
+  <div id="lock-hint" style="display:none;position:absolute;bottom:50%;left:50%;transform:translate(-50%,50%);margin-top:40px;background:rgba(0,0,0,0.75);color:#ffd700;padding:8px 20px;border-radius:6px;font-size:15px;pointer-events:none;margin-top:48px;">🖱 Döndürmek için tıkla</div>
+  <div id="zone-health-box" style="position:absolute;bottom:130px;left:16px;">
+    <div style="color:#3399ff;font-size:14px;margin-bottom:4px">🔷 Savunma Alanı: <span id="zone-hp-num">100</span></div>
+    <div style="width:200px;height:14px;background:#333;border:2px solid #555;border-radius:3px;">
+      <div id="zone-health-bar" style="height:100%;background:#3399ff;border-radius:2px;transition:width 0.3s;width:100%"></div>
+    </div>
+  </div>
+  <div id="health-box">
+    <div style="color:#fff;font-size:14px;margin-bottom:4px">❤ Sağlık</div>
+    <div id="health-bar-bg"><div id="health-bar" style="width:100%"></div></div>
+  </div>
+  <div id="block-count-display">🧱 <span id="block-count2">30</span></div>
+  <div id="sprint-indicator" style="position:absolute;bottom:80px;right:16px;margin-top:36px;background:rgba(0,0,0,0.7);border:2px solid #555;border-radius:4px;padding:4px 12px;color:#aaa;font-size:13px;margin-top:44px;">F: Koşma <span id="sprint-status">OFF</span></div>
+  <div id="message-overlay">
+    <h2 id="msg-title">Hazır mısın?</h2>
+    <p id="msg-text">1 dakika içinde yapını inşa et!</p>
+    <button id="msg-btn" onclick="startGame()">Başla</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const WOOD_B64 = "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";
+const GRASS_B64 = "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";
+
+let scene, camera, renderer, raycaster;
+let blocks = [], enemies = [], projectiles = [], particles = [];
+let defenseZone = null, defenseZoneHealth = 100;
+let playerHealth = 100, blockCount = 30, round = 1;
+let gamePhase = 'menu'; // menu, build, combat, roundEnd, gameOver
+let buildTimer = 15, combatTimer = 0;
+let enemiesThisRound = 5;
+let clock;
+let moveState = { forward: false, back: false, left: false, right: false };
+let isSprinting = false, isJumping = false, velocityY = 0, onGround = true;
+const GRAVITY = -18, JUMP_FORCE = 7, PLAYER_SPEED = 5, SPRINT_MULT = 1.8;
+function lockPointer() { const c = document.getElementById('canvas'); const p = c.requestPointerLock || c.mozRequestPointerLock || c.webkitRequestPointerLock; if (p) p.call(c); }
+let isPointerLocked = false;
+let yaw = 0, pitch = 0;
+let ghostBlock = null;
+let woodTexture, grassTexture;
+
+const GRID_SIZE = 20;
+const BLOCK_SIZE = 1;
+const PLAYER_HEIGHT = 1.7;
+const ENEMY_COUNT_START = 5;
+const ENEMY_COUNT_INCREASE = 5;
+const BLOCKS_PER_ROUND = 15;
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87CEEB);
+  scene.fog = new THREE.Fog(0x87CEEB, 20, 60);
+
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, PLAYER_HEIGHT, 0);
+
+  renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(), 0, 5);
+  clock = new THREE.Clock();
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  sun.position.set(10, 20, 10);
+  sun.castShadow = true;
+  scene.add(sun);
+
+  loadTextures();
+  buildGround();
+  setupControls();
+
+  window.addEventListener('resize', onResize);
+  document.getElementById('message-overlay').style.display = 'block';
+
+  animate();
+}
+
+function loadTextures() {
+  const woodImg = new Image();
+  woodImg.src = 'data:image/webp;base64,' + WOOD_B64;
+  woodTexture = new THREE.Texture(woodImg);
+  woodImg.onload = () => { woodTexture.needsUpdate = true; };
+
+  const grassImg = new Image();
+  grassImg.src = 'data:image/png;base64,' + GRASS_B64;
+  grassTexture = new THREE.Texture(grassImg);
+  grassImg.onload = () => { grassTexture.needsUpdate = true; };
+}
+
+function buildGround() {
+  const geo = new THREE.PlaneGeometry(GRID_SIZE * 2, GRID_SIZE * 2);
+  const mat = new THREE.MeshLambertMaterial({ map: grassTexture });
+  const ground = new THREE.Mesh(geo, mat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  ground.userData.isGround = true;
+  scene.add(ground);
+
+  const gridHelper = new THREE.GridHelper(GRID_SIZE * 2, GRID_SIZE * 2, 0x333333, 0x333333);
+  gridHelper.position.y = 0.01;
+  gridHelper.material.opacity = 0.2;
+  gridHelper.material.transparent = true;
+  scene.add(gridHelper);
+
+  createDefenseZone();
+}
+
+function createDefenseZone() {
+  // Glowing platform at center
+  const baseGeo = new THREE.CylinderGeometry(2.5, 2.5, 0.2, 32);
+  const baseMat = new THREE.MeshLambertMaterial({ color: 0x3399ff, transparent: true, opacity: 0.85 });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.set(0, 0.1, 0);
+  scene.add(base);
+
+  // Crystal above it
+  const crystalGeo = new THREE.OctahedronGeometry(0.8, 0);
+  const crystalMat = new THREE.MeshLambertMaterial({ color: 0x66ddff, transparent: true, opacity: 0.9 });
+  const crystal = new THREE.Mesh(crystalGeo, crystalMat);
+  crystal.position.set(0, 1.4, 0);
+  scene.add(crystal);
+
+  // Ring around base
+  const ringGeo = new THREE.TorusGeometry(2.5, 0.08, 8, 48);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x00aaff });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(0, 0.21, 0);
+  scene.add(ring);
+
+  defenseZone = { base, crystal, ring, health: 100 };
+}
+
+function createBlock(x, y, z, health = 100) {
+  const geo = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+  const mat = new THREE.MeshLambertMaterial({ map: woodTexture });
+  const block = new THREE.Mesh(geo, mat);
+  block.position.set(x, y + 0.5, z);
+  block.castShadow = true;
+  block.receiveShadow = true;
+  block.userData.isBlock = true;
+  block.userData.health = health;
+  block.userData.maxHealth = health;
+  scene.add(block);
+  blocks.push(block);
+  return block;
+}
+
+function getBlockOpacity(block) {
+  return block.userData.health / block.userData.maxHealth;
+}
+
+function damageBlock(block, dmg) {
+  block.userData.health = Math.max(0, block.userData.health - dmg);
+  const ratio = block.userData.health / block.userData.maxHealth;
+  block.material.opacity = 0.3 + ratio * 0.7;
+  block.material.transparent = true;
+  if (block.userData.health <= 0) {
+    scene.remove(block);
+    blocks.splice(blocks.indexOf(block), 1);
+  }
+}
+
+function setupControls() {
+  document.addEventListener('keydown', (e) => {
+    if (gamePhase === 'build' || gamePhase === 'combat') {
+      if (e.code === 'KeyW') moveState.forward = true;
+      if (e.code === 'KeyS') moveState.back = true;
+      if (e.code === 'KeyA') moveState.left = true;
+      if (e.code === 'KeyD') moveState.right = true;
+    }
+    if (e.code === 'KeyE' && gamePhase === 'build') placeBlock();
+    if (e.code === 'KeyQ' && gamePhase === 'build') removeBlock();
+    if (e.code === 'KeyF') { isSprinting = !isSprinting; }
+    if (e.code === 'Space' && onGround && (gamePhase === 'build' || gamePhase === 'combat')) {
+      velocityY = JUMP_FORCE; onGround = false; e.preventDefault();
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.code === 'KeyW') moveState.forward = false;
+    if (e.code === 'KeyS') moveState.back = false;
+    if (e.code === 'KeyA') moveState.left = false;
+    if (e.code === 'KeyD') moveState.right = false;
+  });
+
+  const canvas = document.getElementById('canvas');
+
+  function lockPointer() {
+    const p = canvas.requestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock;
+    if (p) p.call(canvas);
+  }
+
+  canvas.addEventListener('click', () => {
+    if (gamePhase === 'build' || gamePhase === 'combat') lockPointer();
+  });
+
+  const onPLC = () => {
+    isPointerLocked = !!(document.pointerLockElement === canvas ||
+      document.mozPointerLockElement === canvas ||
+      document.webkitPointerLockElement === canvas);
+    if (isPointerLocked) {
+      canvas.classList.add('locked');
+      document.getElementById('lock-hint').style.display = 'none';
+    } else {
+      canvas.classList.remove('locked');
+      if (gamePhase === 'build' || gamePhase === 'combat')
+        document.getElementById('lock-hint').style.display = 'block';
+    }
+  };
+  document.addEventListener('pointerlockchange', onPLC);
+  document.addEventListener('mozpointerlockchange', onPLC);
+  document.addEventListener('webkitpointerlockchange', onPLC);
+
+  document.addEventListener('mousemove', (e) => {
+    if (gamePhase !== 'build' && gamePhase !== 'combat') return;
+    if (!isPointerLocked) return;
+    const mx = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+    const my = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+    yaw -= mx * 0.003;
+    pitch -= my * 0.003;
+    pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (!isPointerLocked && (gamePhase === 'build' || gamePhase === 'combat')) {
+      lockPointer();
+      return;
+    }
+    if (e.button === 0 && gamePhase === 'build') placeBlock();
+    if (e.button === 2 && gamePhase === 'build') removeBlock();
+  });
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  document.addEventListener('pointerlockerror', () => console.warn('Pointer lock failed'));
+  document.addEventListener('mozpointerlockerror', () => console.warn('Pointer lock failed'));
+}
+
+function getPlacementTarget() {
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+  const targets = [...blocks.map(b => b), ...scene.children.filter(c => c.userData.isGround)];
+  const hits = raycaster.intersectObjects(targets);
+  return hits.length > 0 ? hits[0] : null;
+}
+
+function placeBlock() {
+  if (blockCount <= 0) return;
+  const hit = getPlacementTarget();
+  if (!hit) return;
+  const normal = hit.face.normal.clone();
+  let pos = hit.object.position.clone().add(normal);
+  if (hit.object.userData.isGround) {
+    pos = new THREE.Vector3(
+      Math.round(hit.point.x),
+      0,
+      Math.round(hit.point.z)
+    );
+  } else {
+    pos = new THREE.Vector3(
+      Math.round(hit.object.position.x + normal.x),
+      Math.round(hit.object.position.y + normal.y - 0.5),
+      Math.round(hit.object.position.z + normal.z)
+    );
+  }
+  // Don't place on player
+  const playerPos = camera.position;
+  if (Math.abs(pos.x - playerPos.x) < 1 && Math.abs(pos.z - playerPos.z) < 1) return;
+
+  createBlock(pos.x, pos.y, pos.z);
+  blockCount--;
+  updateHUD();
+}
+
+function removeBlock() {
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = raycaster.intersectObjects(blocks);
+  if (hits.length > 0) {
+    const block = hits[0].object;
+    scene.remove(block);
+    blocks.splice(blocks.indexOf(block), 1);
+    blockCount++;
+    updateHUD();
+  }
+}
+
+function spawnEnemies(count) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+    const dist = 15 + Math.random() * 5;
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+
+    const geo = new THREE.BoxGeometry(0.8, 1.6, 0.8);
+    const mat = new THREE.MeshLambertMaterial({ color: 0x2d8a2d });
+    const enemy = new THREE.Mesh(geo, mat);
+    enemy.position.set(x, 0.8, z);
+    enemy.castShadow = true;
+
+    // Eyes
+    const eyeGeo = new THREE.BoxGeometry(0.15, 0.15, 0.1);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.position.set(-0.2, 0.3, 0.41);
+    const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeR.position.set(0.2, 0.3, 0.41);
+    enemy.add(eyeL, eyeR);
+
+    enemy.userData.isEnemy = true;
+    enemy.userData.health = 30 + round * 5;
+    enemy.userData.speed = 2 + round * 0.3;
+    enemy.userData.explodeRadius = 2;
+    enemy.userData.explodeDamage = 25;
+    enemy.userData.blockDamage = 40;
+
+    scene.add(enemy);
+    enemies.push(enemy);
+  }
+  updateHUD();
+}
+
+function updateEnemies(dt) {
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const enemy = enemies[i];
+    const toPlayer = new THREE.Vector3().subVectors(camera.position, enemy.position);
+    toPlayer.y = 0;
+    const distToPlayer = toPlayer.length();
+
+    // Check if near a block
+    let nearBlock = null;
+    let nearBlockDist = 1.2;
+    for (const block of blocks) {
+      const d = enemy.position.distanceTo(block.position);
+      if (d < nearBlockDist) {
+        nearBlock = block;
+        nearBlockDist = d;
+        break;
+      }
+    }
+
+    if (nearBlock) {
+      // Explode on block
+      explodeEnemy(enemy, true, nearBlock);
+      enemies.splice(i, 1);
+      continue;
+    }
+
+    if (distToPlayer < 1.5) {
+      // Explode on player
+      explodeEnemy(enemy, false, null);
+      enemies.splice(i, 1);
+      playerHealth -= enemy.userData.explodeDamage;
+      if (playerHealth <= 0) { playerHealth = 0; gameOver(); }
+      updateHUD();
+      continue;
+    }
+
+    // Move toward defense zone (center) primarily, player secondarily
+    const toZone = new THREE.Vector3(0, 0, 0).sub(enemy.position);
+    toZone.y = 0;
+    const distToZone = toZone.length();
+
+    // Check if reached defense zone
+    if (distToZone < 2.0 && !nearBlock) {
+      // Explode on defense zone
+      spawnParticles(enemy.position.clone(), 24, 0xff6600, 0xffdd00);
+      scene.remove(enemy);
+      enemies.splice(i, 1);
+      defenseZone.health = Math.max(0, defenseZone.health - enemy.userData.explodeDamage);
+      updateDefenseZone();
+      if (defenseZone.health <= 0) { gameOver(); }
+      updateHUD();
+      continue;
+    }
+
+    // Move toward zone
+    const moveDir = toZone.normalize();
+    enemy.position.addScaledVector(moveDir, enemy.userData.speed * dt);
+    enemy.lookAt(0, enemy.position.y, 0);
+  }
+
+  if (gamePhase === 'combat' && enemies.length === 0) {
+    roundWon();
+  }
+  updateHUD();
+}
+
+function spawnParticles(pos, count, color1, color2) {
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    const col = Math.random() > 0.5 ? color1 : color2;
+    const mat = new THREE.MeshBasicMaterial({ color: col });
+    const p = new THREE.Mesh(geo, mat);
+    p.position.copy(pos);
+    const vel = new THREE.Vector3(
+      (Math.random() - 0.5) * 8,
+      Math.random() * 6 + 2,
+      (Math.random() - 0.5) * 8
+    );
+    p.userData.vel = vel;
+    p.userData.life = 0.8 + Math.random() * 0.4;
+    p.userData.age = 0;
+    scene.add(p);
+    particles.push(p);
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.userData.age += dt;
+    if (p.userData.age >= p.userData.life) {
+      scene.remove(p);
+      particles.splice(i, 1);
+      continue;
+    }
+    p.userData.vel.y -= 12 * dt;
+    p.position.addScaledVector(p.userData.vel, dt);
+    const ratio = 1 - p.userData.age / p.userData.life;
+    p.material.opacity = ratio;
+    p.material.transparent = true;
+    p.rotation.x += dt * 5;
+    p.rotation.z += dt * 3;
+  }
+}
+
+function explodeEnemy(enemy, hitBlock, block) {
+  const pos = enemy.position.clone();
+  spawnParticles(pos, 28, 0xff6600, 0xffdd00);
+
+  if (hitBlock && block) {
+    damageBlock(block, enemy.userData.blockDamage);
+    for (const b of blocks) {
+      if (b !== block && b.position.distanceTo(pos) < enemy.userData.explodeRadius) {
+        damageBlock(b, enemy.userData.blockDamage * 0.5);
+      }
+    }
+  }
+  scene.remove(enemy);
+}
+
+function playerAABB(pos) {
+  return { minX: pos.x - 0.3, maxX: pos.x + 0.3, minY: pos.y - PLAYER_HEIGHT, maxY: pos.y + 0.1, minZ: pos.z - 0.3, maxZ: pos.z + 0.3 };
+}
+function blockAABB(b) {
+  return { minX: b.position.x - 0.5, maxX: b.position.x + 0.5, minY: b.position.y - 0.5, maxY: b.position.y + 0.5, minZ: b.position.z - 0.5, maxZ: b.position.z + 0.5 };
+}
+function aabbOverlap(a, b) {
+  return a.maxX > b.minX && a.minX < b.maxX && a.maxY > b.minY && a.minY < b.maxY && a.maxZ > b.minZ && a.minZ < b.maxZ;
+}
+
+function movePlayer(dt) {
+  const speed = PLAYER_SPEED * (isSprinting ? SPRINT_MULT : 1);
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const dir = new THREE.Vector3();
+
+  if (moveState.forward) dir.add(forward);
+  if (moveState.back) dir.sub(forward);
+  if (moveState.left) dir.sub(right);
+  if (moveState.right) dir.add(right);
+  if (dir.length() > 0) dir.normalize();
+
+  // Gravity
+  velocityY += GRAVITY * dt;
+  let newPos = camera.position.clone();
+
+  // Move X
+  newPos.x += dir.x * speed * dt;
+  newPos.x = Math.max(-GRID_SIZE + 1, Math.min(GRID_SIZE - 1, newPos.x));
+  let aabb = playerAABB(newPos);
+  for (const b of blocks) {
+    if (aabbOverlap(aabb, blockAABB(b))) {
+      newPos.x = camera.position.x;
+      break;
+    }
+  }
+
+  // Move Z
+  newPos.z += dir.z * speed * dt;
+  newPos.z = Math.max(-GRID_SIZE + 1, Math.min(GRID_SIZE - 1, newPos.z));
+  aabb = playerAABB(newPos);
+  for (const b of blocks) {
+    if (aabbOverlap(aabb, blockAABB(b))) {
+      newPos.z = camera.position.z;
+      break;
+    }
+  }
+
+  // Move Y (gravity + jump)
+  newPos.y += velocityY * dt;
+  aabb = playerAABB(newPos);
+  onGround = false;
+  // Ground check
+  if (newPos.y - PLAYER_HEIGHT <= 0) {
+    newPos.y = PLAYER_HEIGHT;
+    velocityY = 0;
+    onGround = true;
+  }
+  // Block vertical collision
+  for (const b of blocks) {
+    const ba = blockAABB(b);
+    if (aabbOverlap(playerAABB(newPos), ba)) {
+      if (velocityY < 0) {
+        // Landing on top of block
+        newPos.y = ba.maxY + PLAYER_HEIGHT;
+        velocityY = 0;
+        onGround = true;
+      } else if (velocityY > 0) {
+        // Hitting block from below
+        newPos.y = ba.minY - 0.1;
+        velocityY = 0;
+      }
+    }
+  }
+
+  camera.position.copy(newPos);
+  const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+  camera.quaternion.setFromEuler(euler);
+}
+
+function updateGhostBlock() {
+  if (ghostBlock) { scene.remove(ghostBlock); ghostBlock = null; }
+  if (gamePhase !== 'build') return;
+
+  const hit = getPlacementTarget();
+  if (!hit) return;
+
+  let pos;
+  if (hit.object.userData.isGround) {
+    pos = new THREE.Vector3(Math.round(hit.point.x), 0.5, Math.round(hit.point.z));
+  } else {
+    const normal = hit.face.normal;
+    pos = new THREE.Vector3(
+      Math.round(hit.object.position.x + normal.x),
+      Math.round(hit.object.position.y + normal.y),
+      Math.round(hit.object.position.z + normal.z)
+    );
+  }
+
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, wireframe: false });
+  ghostBlock = new THREE.Mesh(geo, mat);
+  ghostBlock.position.copy(pos);
+  scene.add(ghostBlock);
+}
+
+function updateHUD() {
+  document.getElementById('timer').textContent = Math.ceil(buildTimer);
+  document.getElementById('block-count').textContent = blockCount;
+  document.getElementById('block-count2').textContent = blockCount;
+  document.getElementById('round-num').textContent = round;
+  document.getElementById('enemy-num').textContent = enemies.length;
+  const hpPct = (playerHealth / 100) * 100;
+  document.getElementById('health-bar').style.width = hpPct + '%';
+  document.getElementById('sprint-status').textContent = isSprinting ? 'ON ⚡' : 'OFF';
+  document.getElementById('sprint-status').style.color = isSprinting ? '#ffd700' : '#aaa';
+  document.getElementById('health-bar').style.background =
+    hpPct > 50 ? '#22cc22' : hpPct > 25 ? '#ffaa00' : '#cc2222';
+}
+
+function startGame() {
+  document.getElementById('message-overlay').style.display = 'none';
+  gamePhase = 'build';
+  buildTimer = 15;
+  document.getElementById('phase-display').textContent = '⚒ İnşaat Aşaması - E ile Blok Koy, Sağ Tık ile Sil';
+  document.getElementById('lock-hint').style.display = 'block';
+  lockPointer();
+  updateHUD();
+}
+
+function startCombat() {
+  gamePhase = 'combat';
+  document.getElementById('phase-display').textContent = '⚔ Savaş Aşaması! Düşmanlar Geliyor!';
+  document.getElementById('timer-box').style.display = 'none';
+  enemiesThisRound = ENEMY_COUNT_START + (round - 1) * ENEMY_COUNT_INCREASE;
+  spawnEnemies(enemiesThisRound);
+}
+
+function roundWon() {
+  gamePhase = 'roundEnd';
+  document.exitPointerLock();
+  blockCount += BLOCKS_PER_ROUND;
+  round++;
+  const nextEnemies = ENEMY_COUNT_START + (round - 1) * ENEMY_COUNT_INCREASE;
+  showMessage(
+    '🏆 Tur Kazanıldı!',
+    `+${BLOCKS_PER_ROUND} blok kazandın! Toplam: ${blockCount}\nSonraki turda ${nextEnemies} düşman gelecek.`,
+    'Sonraki Tur',
+    nextRound
+  );
+}
+
+function nextRound() {
+  document.getElementById('message-overlay').style.display = 'none';
+  gamePhase = 'build';
+  defenseZone.health = Math.min(100, defenseZone.health + 20); updateDefenseZone();
+  buildTimer = 15;
+  document.getElementById('timer-box').style.display = 'flex';
+  document.getElementById('phase-display').textContent = '⚒ İnşaat Aşaması - E ile Blok Koy, Sağ Tık ile Sil';
+  lockPointer();
+  updateHUD();
+}
+
+function gameOver() {
+  gamePhase = 'gameOver';
+  document.exitPointerLock();
+  showMessage('💀 Oyun Bitti!', `${round - 1}. tura kadar dayandın!`, 'Yeniden Başla', resetGame);
+}
+
+function resetGame() {
+  blocks.forEach(b => scene.remove(b));
+  enemies.forEach(e => scene.remove(e));
+  particles.forEach(p => scene.remove(p));
+  blocks = []; enemies = []; particles = [];
+  blockCount = 30; round = 1; playerHealth = 100;
+  defenseZone.health = 100; updateDefenseZone();
+  buildTimer = 15;
+  camera.position.set(0, PLAYER_HEIGHT, 0);
+  yaw = 0; pitch = 0;
+  gamePhase = 'build';
+  document.getElementById('message-overlay').style.display = 'none';
+  document.getElementById('timer-box').style.display = 'flex';
+  document.getElementById('phase-display').textContent = '⚒ İnşaat Aşaması - E ile Blok Koy, Sağ Tık ile Sil';
+  lockPointer();
+  updateHUD();
+}
+
+function showMessage(title, text, btnText, callback) {
+  document.getElementById('msg-title').textContent = title;
+  document.getElementById('msg-text').textContent = text;
+  document.getElementById('msg-btn').textContent = btnText;
+  document.getElementById('msg-btn').onclick = callback;
+  document.getElementById('message-overlay').style.display = 'block';
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function updateDefenseZone() {
+  if (!defenseZone) return;
+  const ratio = defenseZone.health / 100;
+  defenseZone.crystal.material.color.setRGB(ratio * 0.4 + 0.6 * (1-ratio), ratio * 0.87, 1.0);
+  defenseZone.base.material.opacity = 0.4 + ratio * 0.5;
+  defenseZone.base.material.color.setRGB(ratio * 0.2, ratio * 0.6 + 0.1, 1.0);
+  // Update defense zone health in HUD
+  const pct = defenseZone.health;
+  document.getElementById('zone-health-bar').style.width = pct + '%';
+  document.getElementById('zone-health-bar').style.background = pct > 50 ? '#3399ff' : pct > 25 ? '#ff9900' : '#ff3333';
+  document.getElementById('zone-hp-num').textContent = Math.round(pct);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (defenseZone) {
+    defenseZone.crystal.rotation.y += dt * 1.2;
+    defenseZone.crystal.position.y = 1.4 + Math.sin(Date.now() * 0.002) * 0.15;
+  }
+
+  updateParticles(dt);
+
+  if (gamePhase === 'build') {
+    buildTimer -= dt;
+    if (buildTimer <= 0) {
+      buildTimer = 0;
+      startCombat();
+    }
+    movePlayer(dt);
+    updateGhostBlock();
+    updateHUD();
+  } else if (gamePhase === 'combat') {
+    movePlayer(dt);
+    updateEnemies(dt);
+  }
+
+  renderer.render(scene, camera);
+}
+
+init();
+</script>
+</body>
+</html>
+GAMEEOF
